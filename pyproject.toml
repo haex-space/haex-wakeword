@@ -1,0 +1,43 @@
+[project]
+name = "haex-wakeword"
+version = "0.1.0"
+description = "Training pipeline for haex's default wake word (\"Hex\" / \"Hey Hex\")"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "numpy>=2.0",
+    "scipy>=1.13",
+    "soundfile>=0.12",
+    "onnxruntime>=1.20",
+    "onnx>=1.17",
+    "huggingface_hub>=0.26",
+    "pyarrow>=17",
+    "tqdm>=4.66",
+    "torch>=2.4",
+]
+
+[project.optional-dependencies]
+# Pocket TTS runs in-process through sherpa-onnx (the export haex ships); Piper (GPL-3.0) only ever runs as its own process, see tools/.
+pocket = ["sherpa-onnx==2.0.1"]
+
+[project.scripts]
+hw = "haex_wakeword.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/haex_wakeword"]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
