@@ -9,6 +9,7 @@ from . import config
 def main() -> None:
     parser = argparse.ArgumentParser(prog="hw")
     parser.add_argument("--root", type=Path, default=Path("."), help="working directory for data")
+    parser.add_argument("--clips", default="clips", help="name of the clip build to write or read")
     steps = parser.add_subparsers(dest="step", required=True)
 
     synth = steps.add_parser("synth", help="synthesize positives or confusables")
@@ -18,6 +19,7 @@ def main() -> None:
     synth.add_argument("--seed", type=int, default=0)
     synth.add_argument("--threads", type=int, default=4)
     synth.add_argument("--languages", nargs="+", help="Pocket only: these languages")
+    synth.add_argument("--extra", choices=["lone", "round2"], help="another text list: the lone \"Hex\" or round-2 confusables")
 
     steps.add_parser("negatives", help="download and embed the long speech sources")
     steps.add_parser("noise", help="download room impulse responses and noises")
@@ -25,6 +27,7 @@ def main() -> None:
     build = steps.add_parser("clips", help="augment and embed the synthesized clips")
     build.add_argument("--variants", type=int, default=3, help="augmented copies per clip")
     build.add_argument("--seed", type=int, default=0)
+    build.add_argument("--lone-pause", action="store_true", help="the lone \"Hex\" fires only after a pause")
 
     train = steps.add_parser("train", help="train the classifier")
     train.add_argument("--run", default="run1")
@@ -39,16 +42,22 @@ def main() -> None:
     export.add_argument("--run", default="run1")
 
     args = parser.parse_args()
-    paths = config.Paths(args.root.resolve())
+    paths = config.Paths(args.root.resolve(), args.clips)
 
     if args.step == "synth":
         from . import synth as s
 
         if args.engine == "piper":
-            s.piper(paths, args.kind, args.count, seed=args.seed)
+            s.piper(paths, args.kind, args.count, seed=args.seed, extra=args.extra)
         else:
             s.pocket(
-                paths, args.kind, args.count, languages=args.languages, seed=args.seed, threads=args.threads
+                paths,
+                args.kind,
+                args.count,
+                languages=args.languages,
+                seed=args.seed,
+                threads=args.threads,
+                extra=args.extra,
             )
     elif args.step == "negatives":
         from . import data, features
@@ -64,7 +73,7 @@ def main() -> None:
     elif args.step == "clips":
         from . import clips
 
-        clips.build(paths, variants=args.variants, seed=args.seed)
+        clips.build(paths, variants=args.variants, seed=args.seed, lone_pause=args.lone_pause)
     elif args.step == "train":
         from . import train as t
 

@@ -55,6 +55,26 @@ CONFUSABLES = {
 }
 
 
+# What the first runs (2026-11-08) fired on in held-out speech: "he said"/"he went" in English,
+# the same few German passages. Synthesized as confusables in a second round.
+CONFUSABLES_ROUND2 = {
+    "de": [
+        "Er sagte", "Heidi", "hielt", "Woyzeck", "Hawkens", "kicherte", "Hecke", "hechelt",
+        "Hessen", "Keks", "Text", "sechs", "Klecks", "Fex", "Rex", "Max", "Lex", "Specht",
+        "Heck", "Hecht", "Häcksel", "He, Max", "He, Rex", "Hey Jens", "Hey Lex", "Hey Rex",
+        "Hey Klaus", "Hey Fax", "Hey Text", "Hey Keks", "Hey Sechs", "Hey Echs",
+    ],
+    "en": [
+        "he said", "he says", "he sets", "he asked", "he went", "he left", "he sat", "he's next",
+        "he checks", "he did", "she said", "they said", "he declared", "he repeated", "hey Jack",
+        "hey Rex", "hey Max", "hey Lex", "hey Tex", "hey next", "hey decks", "hey checks",
+        "hey text", "hey six", "Keswick", "excitement", "external", "excellent", "expect",
+    ],
+}
+
+LONE_PHRASES = {"de": ["Hex", "Hex!", "Hex?", "Hex."], "en": ["Hex", "Hex!", "Hex?", "Hex."]}
+
+
 @dataclass(frozen=True)
 class PiperVoice:
     """A Piper voice whose training data is CC0, CC-BY, public domain or Apache-2.0. The number of
@@ -103,6 +123,12 @@ RIRS_NOISES_URL = "https://www.openslr.org/resources/28/rirs_noises.zip"  # Apac
 @dataclass(frozen=True)
 class Paths:
     root: Path
+    clips_name: str = "clips"
+
+    @property
+    def clips(self) -> Path:
+        """The augmented, embedded clips of one build (`hw --clips <name> clips`)."""
+        return self.features / self.clips_name
 
     @property
     def models(self) -> Path:

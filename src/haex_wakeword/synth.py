@@ -76,7 +76,11 @@ def _append(directory: Path, clip: Clip) -> None:
         f.write(json.dumps(asdict(clip), ensure_ascii=False) + "\n")
 
 
-def texts(kind: str, language: str) -> list[str]:
+def texts(kind: str, language: str, extra: str | None = None) -> list[str]:
+    if extra == "lone":
+        return config.LONE_PHRASES.get(language, config.LONE_PHRASES["en"])
+    if extra == "round2":
+        return config.CONFUSABLES_ROUND2.get(language, config.CONFUSABLES_ROUND2["en"])
     if kind == "positive":
         return config.PHRASES[language]
     # Confusables exist in German and English; the other languages' speakers use the English list.
@@ -120,7 +124,7 @@ def piper_model(paths: config.Paths, voice: config.PiperVoice) -> tuple[Path, in
     return files[0], speakers
 
 
-def piper(paths: config.Paths, kind: str, per_voice: int, seed: int = 0) -> None:
+def piper(paths: config.Paths, kind: str, per_voice: int, seed: int = 0, extra: str | None = None) -> None:
     """`per_voice` clips of `kind` from every Piper voice, random speaker, phrase and pace."""
     rng = random.Random(seed)
     out_dir = paths.positives if kind == "positive" else paths.confusables
@@ -141,8 +145,9 @@ def piper(paths: config.Paths, kind: str, per_voice: int, seed: int = 0) -> None
                 model, speakers = piper_model(paths, voice)
                 for n in tqdm(range(per_voice), desc=f"piper {kind} {voice.key}"):
                     speaker = rng.randrange(speakers)
-                    text = rng.choice(texts(kind, voice.language))
-                    rel = f"piper/{voice.key}/{kind}-{seed}-{n:06d}.wav"
+                    text = rng.choice(texts(kind, voice.language, extra))
+                    tag = f"{kind}-{extra}" if extra else kind
+                    rel = f"piper/{voice.key}/{tag}-{seed}-{n:06d}.wav"
                     params = {
                         "length_scale": rng.uniform(0.75, 1.35),
                         "noise_scale": rng.uniform(0.4, 0.9),
@@ -234,6 +239,7 @@ def pocket(
     languages: Iterator[str] | None = None,
     seed: int = 0,
     threads: int = 4,
+    extra: str | None = None,
 ) -> None:
     """`per_language` clips of `kind` per Pocket language, each with a random donated voice."""
     import sherpa_onnx
@@ -248,9 +254,10 @@ def pocket(
         tts = _pocket_engine(pocket_model_dir(paths, language), threads)
         for n in tqdm(range(per_language), desc=f"pocket {kind} {language}"):
             voice, reference = rng.choice(references)
-            text = rng.choice(texts(kind, language))
+            text = rng.choice(texts(kind, language, extra))
             temperature = rng.uniform(0.5, 0.9)
-            rel = f"pocket/{language}/{kind}-{seed}-{n:06d}.wav"
+            tag = f"{kind}-{extra}" if extra else kind
+            rel = f"pocket/{language}/{tag}-{seed}-{n:06d}.wav"
             if rel in done:
                 continue
             if voice not in loaded:

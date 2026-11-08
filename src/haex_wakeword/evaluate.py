@@ -54,7 +54,7 @@ def evaluate(paths: config.Paths, run: str) -> dict:
     conf = _scores(model, load_clips(paths, "test", "confusable"))
     # Per spoken clip: the detector fires if any of the clip's windows reaches the threshold.
     pos = per_group(pos, pos_groups)
-    conf = per_group(conf, np.load(paths.features / "clips" / "test-confusable-groups.npy"))
+    conf = per_group(conf, np.load(paths.clips / "test-confusable-groups.npy"))
     speech = negatives.speech(paths, "test")
     hours = speech.seconds / 3600
 

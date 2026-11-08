@@ -22,14 +22,17 @@ from tqdm import tqdm
 from . import audio, config, data, features, synth
 
 PRE_ROLL = int(2.2 * config.SAMPLE_RATE)  # the clip ends after at least 2 s: a full window fits
-POST_ROLL = int(0.5 * config.SAMPLE_RATE)
+POST_ROLL = int(0.8 * config.SAMPLE_RATE)  # room for windows up to 8 frames after the end
 POSITIVE_ENDS = (0, 1, 2, 3, 4)  # windows ending this many frames after the clip's end
-CONFUSABLE_ENDS = (-2, 0, 2, 4)
+# The lone "Hex" (one syllable) fires only after a short pause: its windows end 4 to 8 frames
+# (320 to 640 ms) after the word. Mid-sentence fragments like "external" have no such pause.
+LONE_ENDS = (4, 5, 6, 7, 8)
+CONFUSABLE_ENDS = (-2, 0, 2, 4, 6, 8)  # up to where the lone "Hex" fires after its pause
 
 _state: dict = {}
 
 
-def _init(root: str, seed: int) -> None:
+def _init(root: str, seed: int, lone_pause: bool) -> None:
     paths = config.Paths(Path(root))
     noise_root = data.rirs_noises(paths)
     _state["paths"] = paths
@@ -37,6 +40,7 @@ def _init(root: str, seed: int) -> None:
     _state["rirs"] = data.rir_files(noise_root)
     _state["embedder"] = features.Embedder(features.model_path(paths.models), threads=1)
     _state["seed"] = seed
+    _state["lone_pause"] = lone_pause
 
 
 @lru_cache(maxsize=256)
@@ -89,27 +93,34 @@ def windows_at(embeddings: np.ndarray, end_sample: int, offsets) -> list[np.ndar
     return out
 
 
-def _job(job: tuple[str, str, int]) -> list[np.ndarray]:
-    path, kind, index = job
+def _job(job: tuple[str, str, int, str]) -> list[np.ndarray]:
+    path, kind, index, text = job
     rng = random.Random(f"{_state['seed']}:{path}:{index}")
     clip = _load(path)
     mixed, end = augment(clip, rng)
     emb = _state["embedder"].embed(mixed)
-    offsets = POSITIVE_ENDS if kind == "positive" else CONFUSABLE_ENDS
+    if kind != "positive":
+        offsets = CONFUSABLE_ENDS
+    elif _state.get("lone_pause") and not two_words(text):
+        offsets = LONE_ENDS
+    else:
+        offsets = POSITIVE_ENDS
     return [w.astype(np.float16) for w in windows_at(emb, end, offsets)]
 
 
-def build(paths: config.Paths, variants: int = 3, seed: int = 0, workers: int = 12) -> None:
-    out_dir = paths.features / "clips"
+def build(
+    paths: config.Paths, variants: int = 3, seed: int = 0, workers: int = 12, lone_pause: bool = False
+) -> None:
+    out_dir = paths.clips
     out_dir.mkdir(parents=True, exist_ok=True)
     for kind, directory in (("positive", paths.positives), ("confusable", paths.confusables)):
         clips = synth.read_index(directory)
         for split in ("train", "test"):
             chosen = [c for c in clips if c.split == split]
-            jobs = [(str(directory / c.path), kind, v) for c in chosen for v in range(variants)]
+            jobs = [(str(directory / c.path), kind, v, c.text) for c in chosen for v in range(variants)]
             result: list[np.ndarray] = []
             groups: list[int] = []
-            with Pool(workers, initializer=_init, initargs=(str(paths.root), seed)) as pool:
+            with Pool(workers, initializer=_init, initargs=(str(paths.root), seed, lone_pause)) as pool:
                 for group, windows in enumerate(
                     tqdm(pool.imap(_job, jobs, chunksize=32), total=len(jobs), desc=f"{split} {kind}")
                 ):
@@ -127,7 +138,7 @@ def build(paths: config.Paths, variants: int = 3, seed: int = 0, workers: int = 
 def group_texts(paths: config.Paths, split: str, kind: str, variants: int = 3) -> list[str]:
     """The text of every group (spoken clip) of a split. Built features before texts were saved
     are matched through the index: clips are only ever appended to it."""
-    out_dir = paths.features / "clips"
+    out_dir = paths.clips
     saved = out_dir / f"{split}-{kind}-texts.json"
     if saved.exists():
         return json.loads(saved.read_text())

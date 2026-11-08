@@ -24,7 +24,7 @@ HARD_KEEP = 50_000
 
 
 def load_clips(paths: config.Paths, split: str, kind: str) -> np.ndarray:
-    file = paths.features / "clips" / f"{split}-{kind}.npy"
+    file = paths.clips / f"{split}-{kind}.npy"
     if not file.exists():
         raise FileNotFoundError(f"run `hw clips` first: {file}")
     return np.load(file)
@@ -45,7 +45,7 @@ def positives_of(paths: config.Paths, split: str, phrases: str) -> tuple[np.ndar
     from .clips import group_texts, two_words
 
     windows = load_clips(paths, split, "positive")
-    groups = np.load(paths.features / "clips" / f"{split}-positive-groups.npy")
+    groups = np.load(paths.clips / f"{split}-positive-groups.npy")
     if phrases == "all":
         return windows, groups
     keep_group = np.array([two_words(t) for t in group_texts(paths, split, "positive")])
@@ -57,7 +57,7 @@ def positives_of_lone(paths: config.Paths, split: str) -> tuple[np.ndarray, np.n
     from .clips import group_texts, two_words
 
     windows = load_clips(paths, split, "positive")
-    groups = np.load(paths.features / "clips" / f"{split}-positive-groups.npy")
+    groups = np.load(paths.clips / f"{split}-positive-groups.npy")
     lone = ~np.array([two_words(t) for t in group_texts(paths, split, "positive")])[groups]
     return windows[lone], groups[lone]
 
