@@ -6,9 +6,10 @@ The windows that end when the clip ends (and up to two frames later) are what th
 fire on for a positive; for a confusable every window around its end is a negative.
 
 Output, per split (speakers decide, see synth.split_of): `features/clips/<split>-<kind>.npy`,
-float16 [n, 16, 96].
+float16 [n, 16, 96], and `<split>-<kind>-groups.npy`, the spoken clip each window belongs to.
 """
 
+import json
 import random
 from functools import lru_cache
 from multiprocessing import Pool
@@ -22,7 +23,7 @@ from . import audio, config, data, features, synth
 
 PRE_ROLL = int(2.2 * config.SAMPLE_RATE)  # the clip ends after at least 2 s: a full window fits
 POST_ROLL = int(0.5 * config.SAMPLE_RATE)
-POSITIVE_ENDS = (0, 1, 2)  # windows ending this many frames after the clip's end
+POSITIVE_ENDS = (0, 1, 2, 3, 4)  # windows ending this many frames after the clip's end
 CONFUSABLE_ENDS = (-2, 0, 2, 4)
 
 _state: dict = {}
@@ -53,7 +54,7 @@ def _background(rng: random.Random, length: int, level: float) -> np.ndarray:
         start = rng.randrange(len(noise) - length + 1)
         noise = noise[start : start + length]
         rms = np.sqrt(np.mean(noise**2)) + 1e-9
-        snr = rng.uniform(0, 25)
+        snr = rng.uniform(3, 30)
         hiss += noise / rms * level / 10 ** (snr / 20)
     return hiss
 
@@ -107,11 +108,35 @@ def build(paths: config.Paths, variants: int = 3, seed: int = 0, workers: int = 
             chosen = [c for c in clips if c.split == split]
             jobs = [(str(directory / c.path), kind, v) for c in chosen for v in range(variants)]
             result: list[np.ndarray] = []
+            groups: list[int] = []
             with Pool(workers, initializer=_init, initargs=(str(paths.root), seed)) as pool:
-                for windows in tqdm(
-                    pool.imap(_job, jobs, chunksize=32), total=len(jobs), desc=f"{split} {kind}"
+                for group, windows in enumerate(
+                    tqdm(pool.imap(_job, jobs, chunksize=32), total=len(jobs), desc=f"{split} {kind}")
                 ):
                     result.extend(windows)
+                    groups.extend([group] * len(windows))
             array = np.stack(result) if result else np.zeros((0, config.WINDOW_FRAMES, config.EMBEDDING_SIZE), np.float16)
             np.save(out_dir / f"{split}-{kind}.npy", array)
+            # Which windows belong to one spoken clip: the detector fires if any of them does.
+            np.save(out_dir / f"{split}-{kind}-groups.npy", np.asarray(groups, np.int64))
+            texts = [chosen[i // variants].text for i in range(len(jobs))]
+            (out_dir / f"{split}-{kind}-texts.json").write_text(json.dumps(texts, ensure_ascii=False))
             print(f"{split} {kind}: {len(chosen)} clips -> {len(array)} windows")
+
+
+def group_texts(paths: config.Paths, split: str, kind: str, variants: int = 3) -> list[str]:
+    """The text of every group (spoken clip) of a split. Built features before texts were saved
+    are matched through the index: clips are only ever appended to it."""
+    out_dir = paths.features / "clips"
+    saved = out_dir / f"{split}-{kind}-texts.json"
+    if saved.exists():
+        return json.loads(saved.read_text())
+    groups = np.load(out_dir / f"{split}-{kind}-groups.npy")
+    directory = paths.positives if kind == "positive" else paths.confusables
+    chosen = [c for c in synth.read_index(directory) if c.split == split]
+    return [chosen[g // variants].text for g in range(int(groups.max()) + 1)]
+
+
+def two_words(text: str) -> bool:
+    """"Hey Hex" and its forms in the other languages, not the lone "Hex"."""
+    return len(text.replace(",", " ").split()) >= 2

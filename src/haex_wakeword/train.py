@@ -19,8 +19,8 @@ from .model import Classifier
 
 BATCH = {"positive": 192, "confusable": 96, "speech": 512, "noise": 64, "hard": 192}
 MINE_EVERY = 2000
-MINE_POOL = 300_000
-HARD_KEEP = 30_000
+MINE_POOL = 1_000_000
+HARD_KEEP = 50_000
 
 
 def load_clips(paths: config.Paths, split: str, kind: str) -> np.ndarray:
@@ -40,15 +40,41 @@ def _scores(model: Classifier, windows: np.ndarray, batch: int = 8192) -> np.nda
     return np.concatenate(out) if out else np.zeros(0, np.float32)
 
 
-def train(paths: config.Paths, run: str, steps: int = 20_000, seed: int = 0) -> Path:
+def positives_of(paths: config.Paths, split: str, phrases: str) -> tuple[np.ndarray, np.ndarray]:
+    """Positive windows and their groups; `phrases` "two-words" keeps only "Hey Hex" and its forms."""
+    from .clips import group_texts, two_words
+
+    windows = load_clips(paths, split, "positive")
+    groups = np.load(paths.features / "clips" / f"{split}-positive-groups.npy")
+    if phrases == "all":
+        return windows, groups
+    keep_group = np.array([two_words(t) for t in group_texts(paths, split, "positive")])
+    keep = keep_group[groups]
+    return windows[keep], groups[keep]
+
+
+def positives_of_lone(paths: config.Paths, split: str) -> tuple[np.ndarray, np.ndarray]:
+    from .clips import group_texts, two_words
+
+    windows = load_clips(paths, split, "positive")
+    groups = np.load(paths.features / "clips" / f"{split}-positive-groups.npy")
+    lone = ~np.array([two_words(t) for t in group_texts(paths, split, "positive")])[groups]
+    return windows[lone], groups[lone]
+
+
+def train(paths: config.Paths, run: str, steps: int = 20_000, seed: int = 0, phrases: str = "all") -> Path:
     torch.manual_seed(seed)
     rng = np.random.default_rng(seed)
     run_dir = paths.runs / run
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    positives = load_clips(paths, "train", "positive")
+    positives, _ = positives_of(paths, "train", phrases)
     confusables = load_clips(paths, "train", "confusable")
-    test_positives = load_clips(paths, "test", "positive")
+    test_positives, _ = positives_of(paths, "test", phrases)
+    if phrases == "two-words":
+        # The lone "Hex" must not fire then: it becomes a negative.
+        lone, _ = positives_of_lone(paths, "train")
+        confusables = np.concatenate([confusables, lone])
     speech = negatives.speech(paths, "train")
     noise = negatives.noise(paths)
     print(
@@ -97,7 +123,7 @@ def train(paths: config.Paths, run: str, steps: int = 20_000, seed: int = 0) -> 
             accepted = float((scores[: len(pool_speech)] >= 0.5).mean())
             entry = {
                 "step": step,
-                "loss": float(loss),
+                "loss": float(loss.detach()),
                 "test_recall@0.5": recall,
                 "speech_windows_over_0.5": accepted,
                 "hardest_score": float(scores[top[0]]),
@@ -107,5 +133,6 @@ def train(paths: config.Paths, run: str, steps: int = 20_000, seed: int = 0) -> 
             print(json.dumps(entry))
 
     torch.save(model.state_dict(), run_dir / "model.pt")
+    (run_dir / "phrases.txt").write_text(phrases)
     (run_dir / "train_log.json").write_text(json.dumps(log, indent=2))
     return run_dir

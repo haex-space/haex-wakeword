@@ -17,6 +17,7 @@ def main() -> None:
     synth.add_argument("--count", type=int, required=True, help="clips per Piper voice / per Pocket language")
     synth.add_argument("--seed", type=int, default=0)
     synth.add_argument("--threads", type=int, default=4)
+    synth.add_argument("--languages", nargs="+", help="Pocket only: these languages")
 
     steps.add_parser("negatives", help="download and embed the long speech sources")
     steps.add_parser("noise", help="download room impulse responses and noises")
@@ -29,6 +30,7 @@ def main() -> None:
     train.add_argument("--run", default="run1")
     train.add_argument("--steps", type=int, default=20_000)
     train.add_argument("--seed", type=int, default=0)
+    train.add_argument("--phrases", choices=["all", "two-words"], default="all")
 
     evaluate = steps.add_parser("evaluate", help="recall and false accepts per hour on held-out data")
     evaluate.add_argument("--run", default="run1")
@@ -45,7 +47,9 @@ def main() -> None:
         if args.engine == "piper":
             s.piper(paths, args.kind, args.count, seed=args.seed)
         else:
-            s.pocket(paths, args.kind, args.count, seed=args.seed, threads=args.threads)
+            s.pocket(
+                paths, args.kind, args.count, languages=args.languages, seed=args.seed, threads=args.threads
+            )
     elif args.step == "negatives":
         from . import data, features
 
@@ -64,7 +68,7 @@ def main() -> None:
     elif args.step == "train":
         from . import train as t
 
-        t.train(paths, args.run, steps=args.steps, seed=args.seed)
+        t.train(paths, args.run, steps=args.steps, seed=args.seed, phrases=args.phrases)
     elif args.step == "evaluate":
         from . import evaluate as e
 

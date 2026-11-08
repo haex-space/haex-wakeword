@@ -46,13 +46,23 @@ class Source:
 
 
 SOURCES = [
-    # Training: one shard of German and English MLS train (about 30 h each), 9 h of the others.
+    # Training: six shards of German and English MLS train (about 30 h each), one of the others.
+    # (The 9 h subsets of MLS are part of its train data, so they are not listed again.)
     Source("mls-de-train0", "train", "mls", "de", "german/train-00000-of-00063.parquet"),
     Source("mls-en-train0", "train", "mls", "en", "data/train-00000-of-01416.parquet", "parler-tts/mls_eng"),
-    Source("mls-fr-9h", "train", "mls", "fr", "french/9_hours-00000-of-00001.parquet"),
-    Source("mls-es-9h", "train", "mls", "es", "spanish/9_hours-00000-of-00001.parquet"),
-    Source("mls-it-9h", "train", "mls", "it", "italian/9_hours-00000-of-00001.parquet"),
-    Source("mls-pt-9h", "train", "mls", "pt", "portuguese/9_hours-00000-of-00001.parquet"),
+    # More natural speech: the first runs (2026-11-08) fired on ordinary words with 98 h.
+    *(
+        Source(f"mls-de-train{i}", "train", "mls", "de", f"german/train-{i:05d}-of-00063.parquet")
+        for i in range(1, 6)
+    ),
+    *(
+        Source(f"mls-en-train{i}", "train", "mls", "en", f"data/train-{i:05d}-of-01416.parquet", "parler-tts/mls_eng")
+        for i in range(1, 6)
+    ),
+    Source("mls-fr-train0", "train", "mls", "fr", "french/train-00000-of-00034.parquet"),
+    Source("mls-es-train0", "train", "mls", "es", "spanish/train-00000-of-00030.parquet"),
+    Source("mls-it-train0", "train", "mls", "it", "italian/train-00000-of-00008.parquet"),
+    Source("mls-pt-train0", "train", "mls", "pt", "portuguese/train-00000-of-00006.parquet"),
     # Measurement: speakers the model never heard.
     Source("mls-de-test", "test", "mls", "de", "german/test-00000-of-00001.parquet"),
     Source("mls-en-test", "test", "mls", "en", "data/test-00000-of-00001.parquet", "parler-tts/mls_eng"),

@@ -214,8 +214,10 @@ def pocket_references(paths: config.Paths) -> list[tuple[str, Path]]:
 def _pocket_engine(model_dir: Path, threads: int):
     import sherpa_onnx
 
+    # Room for every donated voice: with fewer slots than voices, every call encodes its
+    # reference again.
     pocket = sherpa_onnx.OfflineTtsPocketModelConfig(
-        *(str(model_dir / name) for name in POCKET_FILES)
+        *(str(model_dir / name) for name in POCKET_FILES), 512
     )
     model = sherpa_onnx.OfflineTtsModelConfig()
     model.pocket = pocket
@@ -252,12 +254,12 @@ def pocket(
             if rel in done:
                 continue
             if voice not in loaded:
-                loaded[voice] = audio.read(reference)[: 15 * config.SAMPLE_RATE]
+                loaded[voice] = audio.read(reference)[: 8 * config.SAMPLE_RATE]
             generation = sherpa_onnx.GenerationConfig()
             generation.reference_audio = loaded[voice].tolist()
             generation.reference_sample_rate = config.SAMPLE_RATE
             generation.num_steps = 1
-            generation.extra = {"temperature": f"{temperature:.2f}", "max_reference_audio_len": "15"}
+            generation.extra = {"temperature": f"{temperature:.2f}", "max_reference_audio_len": "8"}
             generated = tts.generate(text, generation)
             clip = audio.trim(audio.to_rate(np.asarray(generated.samples, np.float32), generated.sample_rate))
             if not plausible(clip, text):
