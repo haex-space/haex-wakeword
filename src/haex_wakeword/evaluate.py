@@ -21,7 +21,7 @@ from .model import Classifier
 from .train import _scores, load_clips, positives_of, positives_of_lone
 
 THRESHOLDS = [round(t, 3) for t in np.concatenate([np.arange(0.3, 0.9, 0.05), np.arange(0.9, 1.0, 0.01), [0.995, 0.998, 0.999]])]
-REFRACTORY_FRAMES = 25  # 2 s
+REFRACTORY_FRAMES = config.REFRACTORY_FRAMES  # 2 s
 SC004_PER_HOUR = 1 / 8
 
 
@@ -103,3 +103,61 @@ def evaluate(paths: config.Paths, run: str) -> dict:
         )
     print("medium:", json.dumps(medium))
     return result
+
+
+def fires(scores: np.ndarray, threshold: float, windows: int) -> np.ndarray:
+    """Indices where `windows` consecutive scores have reached `threshold`."""
+    hit = (scores >= threshold).astype(np.int64)
+    if windows > 1:
+        hit = np.convolve(hit, np.ones(windows, np.int64), "valid") >= windows
+        return np.flatnonzero(hit) + windows - 1
+    return np.flatnonzero(hit)
+
+
+def rule_triggers(scores: np.ndarray, threshold: float, windows: int) -> int:
+    count, quiet_until = 0, -1
+    for i in fires(scores, threshold, windows):
+        if i > quiet_until:
+            count += 1
+            quiet_until = i + REFRACTORY_FRAMES
+    return count
+
+
+def evaluate_rules(paths: config.Paths, run: str) -> dict:
+    """Recall per phrase and false accepts per hour for each sensitivity of config.SENSITIVITY."""
+    from .clips import group_texts, two_words
+
+    model = Classifier()
+    model.load_state_dict(torch.load(paths.runs / run / "model.pt"))
+    model.eval()
+    windows = load_clips(paths, "test", "positive")
+    groups = np.load(paths.clips / "test-positive-groups.npy")
+    texts = group_texts(paths, "test", "positive")
+    scores = _scores(model, windows)
+    per_clip: dict[int, list[float]] = {}
+    for score, group in zip(scores, groups):
+        per_clip.setdefault(int(group), []).append(float(score))
+    speech = negatives.speech(paths, "test")
+    recordings = [
+        _scores(model, speech.windows(np.arange(s, e - config.WINDOW_FRAMES + 1)))
+        for s, e in speech.recordings
+        if e - s >= config.WINDOW_FRAMES
+    ]
+    hours = speech.seconds / 3600
+    out = {"test_hours": hours, "sensitivity": {}}
+    for name, rule in config.SENSITIVITY.items():
+        t, k = rule["threshold"], rule["windows"]
+        found = {g: len(fires(np.array(v), t, k)) > 0 for g, v in per_clip.items()}
+        hey = [ok for g, ok in found.items() if two_words(texts[g])]
+        lone = [ok for g, ok in found.items() if not two_words(texts[g])]
+        fa = sum(rule_triggers(r, t, k) for r in recordings)
+        out["sensitivity"][name] = {
+            **rule,
+            "recall_hey_hex": float(np.mean(hey)),
+            "recall_hex": float(np.mean(lone)),
+            "false_accepts": fa,
+            "false_accepts_per_hour": fa / hours,
+        }
+    (paths.runs / run / "rules.json").write_text(json.dumps(out, indent=2))
+    print(json.dumps(out, indent=2))
+    return out

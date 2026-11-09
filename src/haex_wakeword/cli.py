@@ -37,6 +37,7 @@ def main() -> None:
 
     evaluate = steps.add_parser("evaluate", help="recall and false accepts per hour on held-out data")
     evaluate.add_argument("--run", default="run1")
+    evaluate.add_argument("--rules", action="store_true", help="measure the sensitivities of config.SENSITIVITY")
 
     export = steps.add_parser("export", help="write the ONNX model and its card")
     export.add_argument("--run", default="run1")
@@ -81,7 +82,10 @@ def main() -> None:
     elif args.step == "evaluate":
         from . import evaluate as e
 
-        e.evaluate(paths, args.run)
+        if args.rules:
+            e.evaluate_rules(paths, args.run)
+        else:
+            e.evaluate(paths, args.run)
     elif args.step == "export":
         from . import export as x
 

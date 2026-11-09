@@ -61,7 +61,8 @@ def export(paths: config.Paths, run: str) -> None:
 
     evaluation_file = run_dir / "evaluation.json"
     evaluation = json.loads(evaluation_file.read_text()) if evaluation_file.exists() else {}
-    medium = evaluation.get("medium")
+    rules_file = run_dir / "rules.json"
+    rules = json.loads(rules_file.read_text()) if rules_file.exists() else {}
     card = {
         "file": out.name,
         "sha256": features.sha256(out),
@@ -80,12 +81,88 @@ def export(paths: config.Paths, run: str) -> None:
         },
         "phrases": ["Hex", "Hey Hex"],
         "pronunciation": "[hɛks]",
-        "threshold_medium": medium["threshold"] if medium else None,
-        "evaluation": {
-            "test_hours": evaluation.get("test_hours"),
-            "medium": medium,
-        },
+        "window_frames": config.WINDOW_FRAMES,
+        "refractory_frames": config.REFRACTORY_FRAMES,
+        "sensitivity": rules.get("sensitivity", config.SENSITIVITY),
+        "evaluation": {"test_hours": rules.get("test_hours", evaluation.get("test_hours"))},
         "licence": "Apache-2.0",
     }
     (run_dir / "card.json").write_text(json.dumps(card, indent=2, ensure_ascii=False))
+    (run_dir / "NOTICE").write_text(NOTICE)
+    (run_dir / "README.md").write_text(model_card(card))
     print(json.dumps(card, indent=2, ensure_ascii=False))
+
+
+NOTICE = """haex wake word "Hex" / "Hey Hex"
+Copyright haex-space. Licensed under the Apache License, Version 2.0.
+
+speech_embedding.onnx is Google speech_embedding/1 (TensorFlow1 / speech-embedding / version 1),
+published by Google under the Apache License, Version 2.0:
+https://www.kaggle.com/models/google/speech-embedding/TensorFlow1/speech-embedding/1
+Lin, Kilgour, Roblek, Sharifi: "Training Keyword Spotters with Limited and Synthesized Speech
+Data", arXiv:2002.01322.
+It comes from the ONNX conversion androiddrew/google-speech-embedding-onnx (revision
+e38c9f3880a56ba46e5094af7b69e78d3d2c4b7b, Apache-2.0, by Drew Bednar), whose NOTICE lists the
+conversion's modifications. Modification here: the omitted constant value of the one Pad node is
+written in as 0, which leaves the output unchanged.
+
+hex.onnx was trained by haex-space with https://github.com/haex-space/haex-wakeword on speech
+synthesized with Piper voices (CC0, CC-BY-4.0, public domain, Apache-2.0 data) and Kyutai Pocket
+TTS (CC-BY-4.0) with Kyutai's CC0 voice donations, and on Multilingual LibriSpeech and FLEURS
+(CC-BY-4.0) and openSLR 28 noises (Apache-2.0).
+"""
+
+
+def model_card(card: dict) -> str:
+    rows = "\n".join(
+        f"| {name} | {r['windows']} | {r['threshold']} | "
+        f"{r.get('recall_hey_hex', float('nan')):.1%} | {r.get('recall_hex', float('nan')):.1%} | "
+        f"{r.get('false_accepts_per_hour', float('nan')):.2f} |"
+        for name, r in card["sensitivity"].items()
+    )
+    hours = card["evaluation"]["test_hours"]
+    return f"""---
+license: apache-2.0
+library_name: onnx
+pipeline_tag: audio-classification
+tags:
+  - wake-word
+  - keyword-spotting
+  - onnx
+---
+
+# haex wake word: "Hex" / "Hey Hex"
+
+The default wake word of [haex](https://github.com/haex-space/haex-vault)'s voice assistant, said
+[hɛks]. Trained with [haex-wakeword](https://github.com/haex-space/haex-wakeword).
+
+## Files
+
+- `speech_embedding.onnx`: Google `speech_embedding/1` (Apache-2.0) with its log-mel front end, 16 kHz
+  mono float32 in, one 96-value embedding per 1,280 samples out. See `NOTICE`.
+- `hex.onnx`: the classifier. Input `embeddings` float32 `[batch, 16, 96]`, output `probability`
+  float32 `[batch, 1]`.
+- `card.json`: hashes, the streaming contract and the sensitivities below.
+
+## Running it
+
+Every 80 ms, feed the last 12,800 samples to `speech_embedding.onnx` and keep the last output frame
+(it sees only real audio). Give the last 16 frames to `hex.onnx`. Fire when `windows` consecutive
+probabilities reach `threshold`, then stay quiet for 2 s.
+
+## Measured
+
+On {hours:.1f} h of held-out speech (MLS test, FLEURS dev; six languages; speakers never heard in
+training) and held-out synthetic speakers saying the wake word:
+
+| Sensitivity | Windows | Threshold | "Hey Hex" | "Hex" alone | False accepts per hour |
+|---|---|---|---|---|---|
+{rows}
+
+"medium" is haex's default. These figures come from synthesized voices. Recall with real voices
+at a distance is measured in the app.
+
+## Licence
+
+Apache-2.0. Training data and their licences: see `NOTICE` and the pipeline's README.
+"""

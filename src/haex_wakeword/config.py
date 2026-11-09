@@ -25,6 +25,16 @@ FIRST_REAL_FRAME = 9
 # The classifier sees this many embeddings: 1.28 s, as in openWakeWord.
 WINDOW_FRAMES = 16
 
+# How haex decides: fire when `windows` consecutive scores reach `threshold`, then stay quiet for
+# 2 s. "medium" is the default and meets holzi spec 066 SC-004 (at most 1 false accept in 8 h) on
+# the held-out speech; chosen on run7 (2026-11-09).
+SENSITIVITY = {
+    "low": {"windows": 3, "threshold": 0.9},
+    "medium": {"windows": 2, "threshold": 0.98},
+    "high": {"windows": 2, "threshold": 0.5},
+}
+REFRACTORY_FRAMES = 25
+
 # Said "Hex" like German "Hexe" without the e, [hɛks] (operator 2026-11-08). The written form
 # the synthesizers get, not the brand spelling "Haex".
 PHRASES = {
